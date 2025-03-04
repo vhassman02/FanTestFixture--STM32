@@ -21,22 +21,18 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -44,7 +40,6 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -53,7 +48,6 @@ static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -205,12 +199,12 @@ void setMotorSpeed(uint16_t speed)
 	frame[1] = 0x06;              // Function Code (Write Single Holding Register)
 	frame[2] = 0x00;              // Register Address High Byte (Drive Control Word)
 	frame[3] = 0x01;              // Register Address Low Byte
-	frame[4] = speedUpper;              // Value High Byte
-	frame[5] = speedLower;              // Value Low Byte
+	frame[4] = speedUpper;        // Value High Byte
+	frame[5] = speedLower;        // Value Low Byte
 
-	crc = Modbus_CRC16(frame, 6); //generate the crc token
-	frame[6] = crc & 0xFF;        // CRC low Byte
-	frame[7] = (crc >> 8) & 0xFF; // CRC high Byte
+	crc = Modbus_CRC16(frame, 6); 	//generate the crc token
+	frame[6] = crc & 0x00FF;        // CRC low Byte
+	frame[7] = (crc >> 8) & 0x00FF; // CRC high Byte
 
 	MODBUS_SetTXMode(); //set RS485 to transmit mode
 	//%%%%%%%%
@@ -270,12 +264,11 @@ int main(void)
   uint16_t speed = 0;
   uint8_t rxdata;
 
-  startMotor();//call the function to start the motor
-  HAL_Delay(250); //wait .25 seconds
+  startMotor();		//call the function to start the motor
+  HAL_Delay(250); 	//wait .25 seconds
   setMotor30();
 
   HAL_UART_Transmit(&huart1, tx, sizeof(tx), 1000); //transmit a "Hello" string on UART1_TX
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -283,7 +276,6 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
 	  if(HAL_UART_Receive(&huart1, &rxdata, 1, 1000) == HAL_OK) //receive from UART and store in rx buffer
 	  {
@@ -362,9 +354,6 @@ int main(void)
 			  HAL_UART_Transmit(&huart1, m1, sizeof(m1), 1000);
 		  }
 	  }
-	  //HAL_Delay(5000);
-	  //setMotor30();
-
   }
   /* USER CODE END 3 */
 }
