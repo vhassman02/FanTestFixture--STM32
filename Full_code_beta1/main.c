@@ -69,20 +69,29 @@ static void MX_TIM14_Init(void);
 #define DEFAULTSPEED 50 //150 RPM default speed
 #define ON 1 //motor on definition
 #define OFF 0 //motor off definition
+#define SETUP 2 //setup mode definition
+#define RUN 3 //run mode definition
 
 struct MotorStruct
 {
 	int status; //motor status on or off
 	uint16_t speed; //motor speed in terms of VFD frequency
+	uint16_t maxSpeed; //motor max speed setting
 };
+
+struct ConfigurationStruct
+{
+	int mode;
+};
+
 
 //define a pointer to MotorStruct
 struct MotorStruct* motorPtr = NULL;
 
-int motorStartFlag = 0;
-int motorStopFlag = 0;
-int motorRPMUpFlag = 0;
-int motorRPMDownFlag = 0;
+volatile int motorStartFlag = 0;	//flag to indicate start button was pushed
+volatile int motorStopFlag = 0;		//flag to indicate stop button was pushed
+volatile int motorRPMUpFlag = 0;	//flag to indicate RPM up button was pushed
+volatile int motorRPMDownFlag = 0;	//flag to indicate RPM down button was pushed
 
 //startup function
 void startup()
@@ -190,13 +199,14 @@ int main(void)
   MX_SPI2_Init();
   MX_TIM14_Init();
   /* USER CODE BEGIN 2 */
-  //uint8_t rxdata; //receive data buffer
-
-  struct MotorStruct motor; //create a structure called motor
+  struct MotorStruct motor;
   motor.speed = 0;
   motor.status = OFF;
 
-  startup(); //call the startup sequence
+  struct ConfigurationStruct config;
+  config.mode = SETUP; //start in setup mode
+
+  startup(); //call the startup function
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -206,12 +216,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  //char buffer[32];
-	  //uint32_t tick = HAL_GetTick();
-	  //snprintf(buffer, sizeof(buffer), "SysTick: %lu\r\n", tick);
-	  //snprintf(buffer, sizeof(buffer), "%lu\r\n", tick);
-	  //HAL_UART_Transmit(&huart1, (uint8_t*)buffer, strlen(buffer), 1000);
-
 	  //if startup was triggered by the start button
 	  if(motorStartFlag == 1)
 	  {
@@ -242,18 +246,14 @@ int main(void)
 	  //if motor.speed <= 350
 	  if(motor.speed <= 700 && motor.status == ON)
 	  {
-		  //delay 2 seconds
-		  HAL_Delay(1000);
-		  //retrieve frequency, send torque on USB
-		  outputTorque();
-		  //motor.speed += 5
-		  motor.speed += 5;
-		  //set the new motor speed
-		  setMotorSpeed(motor.speed);
-		  //update the LCD
-		  displayRPM(motor.speed);
-		  //update status LEDs
-		  updateLEDs(&motor);
+		  HAL_Delay(1500); //wait 1.5 seconds for stabilization
+		  readyforTQCapture = 1; //set capture flag
+		  Is_First_Captured_TIM14 = 0; //reset the timer interrupt flag in case
+		  outputTorque(); //retrieve torque and send on USB
+		  motor.speed += 5; //increment motor speed variable by 5 RPM
+		  setMotorSpeed(motor.speed); //update motor speed
+		  displayRPM(motor.speed); //update LCD RPM
+		  updateLEDs(&motor); //update status LEDs
 	  }
 
 	  //else if motor.speed > 350
