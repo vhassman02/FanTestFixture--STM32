@@ -45,9 +45,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi2;
-
 TIM_HandleTypeDef htim14;
-
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
@@ -66,32 +64,28 @@ static void MX_TIM14_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define DEFAULTSPEED 50 //150 RPM default speed
-#define ON 1 //motor on definition
-#define OFF 0 //motor off definition
-#define SETUP 2 //setup mode definition
-#define RUN 3 //run mode definition
+#define DEFAULTSPEED 30
+#define ON 1
+#define OFF 0
+#define SETUP 2
+#define RUN 3
 
 struct MotorStruct
 {
-	int status; //motor status on or off
+	int status;
 	uint16_t speed; //motor speed in terms of VFD frequency
-	uint16_t maxSpeed; //motor max speed setting
+	uint16_t maxSpeed;
 };
-
-struct ConfigurationStruct
-{
-	int mode;
-};
-
 
 //define a pointer to MotorStruct
 struct MotorStruct* motorPtr = NULL;
 
-volatile int motorStartFlag = 0;	//flag to indicate start button was pushed
-volatile int motorStopFlag = 0;		//flag to indicate stop button was pushed
-volatile int motorRPMUpFlag = 0;	//flag to indicate RPM up button was pushed
-volatile int motorRPMDownFlag = 0;	//flag to indicate RPM down button was pushed
+volatile int configMode = 0;
+volatile int motorStartFlag = 0;
+volatile int motorStopFlag = 0;
+volatile int motorRPMUpFlag = 0;
+volatile int motorRPMDownFlag = 0;
+volatile int startOK = 0; 			//start OK flag (avoid starting when maxSpeed is not set)
 
 //startup function
 void startup()
@@ -107,11 +101,11 @@ void startup()
 	LEDUSBOff();
 	LEDTestActiveOff();
 	LEDTestInactiveOn();
-	motorStartupTest(); //run the motor test on startup
-	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); //set CS (PB12) high for default state
-	resetDisplay(); //send a display reset command before turning on display
-	initializeDisplay(); //send display initialization commands
-	displayRPM(0); //display the set RPM on the LCD
+	motorStartupTest();
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_SET); //set CS high for default state
+	resetDisplay();
+	initializeDisplay();
+	displayRPM(0);
 }
 
 //update LEDs based on status
@@ -133,23 +127,24 @@ void updateLEDs(struct MotorStruct* motor)
 //GPIO EXTI Interrupt Handler
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	//if the start button was pushed (PB1)
-	if (GPIO_Pin == GPIO_PIN_1)
+	//start case (PB1)
+	if (GPIO_Pin == GPIO_PIN_1 && startOK == 1)
 	{
 		if(motorStartFlag != 1)
 		{
 			motorStartFlag = 1;
+			configMode = RUN;
 		}
 	}
-	//if stop button was pushed (PB0)
-	if (GPIO_Pin == GPIO_PIN_0)
+	//stop case (PB0)
+	if (GPIO_Pin == GPIO_PIN_0 && startOK == 1)
 	{
 		if(motorStopFlag != 1)
 		{
 			motorStopFlag = 1;
 		}
 	}
-	//if RPM up is pressed
+	//RPM up case (PA7)
 	if(GPIO_Pin == GPIO_PIN_7)
 	{
 		if(motorRPMUpFlag != 1)
@@ -157,7 +152,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 			motorRPMUpFlag = 1;
 		}
 	}
-	//if RPM down is pressed
+	//RPM down case (PA6)
 	if(GPIO_Pin == GPIO_PIN_6)
 	{
 		if(motorRPMDownFlag != 1)
@@ -174,7 +169,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
   /* USER CODE END 1 */
 
@@ -202,11 +196,9 @@ int main(void)
   struct MotorStruct motor;
   motor.speed = 0;
   motor.status = OFF;
-
-  struct ConfigurationStruct config;
-  config.mode = SETUP; //start in setup mode
-
-  startup(); //call the startup function
+  motor.maxSpeed = 0;
+  startup();
+  configMode = SETUP;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -214,143 +206,79 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
-	  //if startup was triggered by the start button
-	  if(motorStartFlag == 1)
+	  //when in test setup mode
+	  if(configMode == SETUP)
 	  {
-		  motorStartFlag = 0; //reset the start flag
-		  if (motor.status == OFF)
+		  if(motorRPMUpFlag == 1 && motor.maxSpeed < 1330)
 		  {
-			  motor.status = ON;
-			  motor.speed = DEFAULTSPEED;
-			  startMotor();
-			  setMotorSpeed(DEFAULTSPEED);
-			  displayRPM(DEFAULTSPEED);
-			  HAL_TIM_IC_Start_IT(&htim14, TIM_CHANNEL_1); //start frequency measurement
+			  motorRPMUpFlag = 0;
+			  motor.maxSpeed += 15; //+45 RPM
+			  displayRPM(motor.maxSpeed);
+		  }
+
+		  if(motorRPMDownFlag == 1 && motor.maxSpeed > 0)
+		  {
+			  motorRPMDownFlag = 0;
+			  //skip to 0 RPM if 90 RPM minimum is reached
+			  if(motor.maxSpeed == 30)
+				  motor.maxSpeed = 0;
+			  else
+				  motor.maxSpeed -= 15; //-45 RPM
+			  displayRPM(motor.maxSpeed);
+		  }
+		  if(motor.maxSpeed > 0)
+			  startOK = 1; //set the startOK flag (OK for test to begin)
+	  }
+	  //when in test run mode
+	  else if(configMode == RUN)
+	  {
+		  if(motorStartFlag == 1)
+		  {
+			  motorStartFlag = 0; //reset the start flag
+			  if (motor.status == OFF)
+			  {
+				  motor.status = ON;
+				  motor.speed = DEFAULTSPEED;
+				  startMotor();
+				  setMotorSpeed(DEFAULTSPEED);
+				  displayRPM(DEFAULTSPEED);
+				  HAL_TIM_IC_Start_IT(&htim14, TIM_CHANNEL_1); //start frequency measurement
+				  updateLEDs(&motor);
+			  }
+		  }
+		  if(motorStopFlag == 1)
+		  {
+			  motorStopFlag = 0;
+			  motor.status = OFF;
+			  motor.speed = 10;
+			  stopMotor();
+			  displayRPM(0);
+			  HAL_TIM_IC_Stop_IT(&htim14, TIM_CHANNEL_1); //stop frequency measurement
+			  updateLEDs(&motor);
+			  startOK = 0; //reset the startOK flag (test cannot start until RPM is set)
+			  configMode = SETUP; //return to setup mode
+		  }
+		  if(motor.speed <= motor.maxSpeed && motor.status == ON)
+		  {
+			  HAL_Delay(1500); //wait 1.5 seconds for measurement stabilization
+			  readyforTQCapture = 1; //set capture flag
+			  Is_First_Captured_TIM14 = 0; //reset the timer interrupt flag in case
+			  outputTorque(); //retrieve torque and send on USB
+			  LEDUSBOn();
+			  motor.speed += 5; //+15 RPM
+			  setMotorSpeed(motor.speed);
+			  displayRPM(motor.speed);
+			  HAL_Delay(500);
+			  LEDUSBOff();
+			  updateLEDs(&motor);
+		  }
+		  else if(motor.speed > motor.maxSpeed)
+		  {
+			  motorStopFlag = 1; //stop the motor when test completed
 			  updateLEDs(&motor);
 		  }
 	  }
-
-	  if(motorStopFlag == 1)
-	  {
-		  motorStopFlag = 0;
-		  motor.status = OFF; //motor on == false
-		  motor.speed = 10;
-		  stopMotor();
-		  displayRPM(0); //display the set RPM on the LCD
-		  HAL_TIM_IC_Stop_IT(&htim14, TIM_CHANNEL_1); //stop frequency measurement
-		  updateLEDs(&motor);
-	  }
-
-	  //if motor.speed <= 350
-	  if(motor.speed <= 700 && motor.status == ON)
-	  {
-		  HAL_Delay(1500); //wait 1.5 seconds for stabilization
-		  readyforTQCapture = 1; //set capture flag
-		  Is_First_Captured_TIM14 = 0; //reset the timer interrupt flag in case
-		  outputTorque(); //retrieve torque and send on USB
-		  motor.speed += 5; //increment motor speed variable by 5 RPM
-		  setMotorSpeed(motor.speed); //update motor speed
-		  displayRPM(motor.speed); //update LCD RPM
-		  updateLEDs(&motor); //update status LEDs
-	  }
-
-	  //else if motor.speed > 350
-	  else if(motor.speed > 700)
-	  {
-		  //stop the motor when test completed
-		  motorStopFlag = 1;
-		  updateLEDs(&motor);
-	  }
-
-	  /*if(motorRPMUpFlag == 1)
-	  {
-		  motorRPMUpFlag = 0;
-		  if(motor.status == ON)
-		  {
-			  if (motor.speed < 1330) //increase speed if max speed not reached
-				  motor.speed += 100;
-			  else
-				  motor.speed += 0; //do nothing to the speed
-			  setMotorSpeed(motor.speed);
-			  displayRPM(motor.speed); //display the set RPM on the LCD
-		  }
-	  }
-
-	  if(motorRPMDownFlag == 1)
-	  {
-		  motorRPMDownFlag = 0;
-		  if(motor.status == ON)
-		  {
-			  if (motor.speed > 0) //decrease speed if speed != 0
-				  motor.speed -= 100;
-			  else
-				  motor.speed -= 0; //do nothing to the speed
-			  setMotorSpeed(motor.speed);
-			  displayRPM(motor.speed); //display the set RPM on the LCD
-		  }
-	  }*/
-
-	  //if PuTTY sends a command
-	  /*if(HAL_UART_Receive(&huart1, &rxdata, 1, 1000)==HAL_OK) //receive from UART and store in rx buffer
-	  {
-		  LEDUSBOn();
-		  switch(rxdata)
-		  {
-		  	  //motor speed (+) from keyboard input
-		  	  case '+':
-				  if(motor.status == ON)
-				  {
-					  if (motor.speed < 1300) //increase speed if max speed not reached
-						  motor.speed += 5;
-					  else
-						  motor.speed += 0; //do nothing to the speed
-					  setMotorSpeed(motor.speed);
-					  displayRPM(motor.speed); //display the set RPM on the LCD
-				  }
-				  break;
-			  //motor speed (-) from keyboard input
-		  	  case '-':
-				  if(motor.status == ON)
-				  {
-					  if (motor.speed > 0) //decrease speed if speed != 0
-						  motor.speed -= 5;
-					  else
-						  motor.speed -= 0; //do nothing to the speed
-					  setMotorSpeed(motor.speed);
-					  displayRPM(motor.speed); //display the set RPM on the LCD
-				  }
-				  break;
-			  //stop motor
-		  	  case 's':
-		  		  motor.status = OFF; //motor on == false
-		  		  motor.speed = 10;
-		  		  stopMotor();
-		  		  displayRPM(0); //display the set RPM on the LCD
-		  		  HAL_UART_Transmit(&huart1, stopmsg, sizeof(stopmsg), 1000);
-		  		  HAL_TIM_IC_Stop_IT(&htim14, TIM_CHANNEL_1); //stop frequency measurement
-		  		  break;
-			  //start motor
-		  	  case 'g':
-		  		  //only start if motor is off
-				  if (motor.status == OFF)
-				  {
-					  motor.status = ON; //motor status == true
-					  motor.speed = DEFAULTSPEED;	//set default speed on startup
-					  startMotor();
-					  setMotorSpeed(DEFAULTSPEED);
-					  displayRPM(DEFAULTSPEED);
-					  HAL_UART_Transmit(&huart1, startmsg, sizeof(startmsg), 1000);
-					  HAL_TIM_IC_Start_IT(&htim14, TIM_CHANNEL_1); //start frequency measurement
-				  }
-				  break;
-			  default:
-				  break;
-		  }
-		  LEDUSBOff();
-	  }
-	  updateLEDs(&motor);*/
   }
   /* USER CODE END 3 */
 }
